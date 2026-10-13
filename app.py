@@ -2,413 +2,385 @@
 import streamlit as st
 import requests
 import uuid
+from datetime import datetime
 
-# ============== PAGE CONFIG ==============
+# ---------------- PAGE CONFIG ----------------
 st.set_page_config(
     page_title="Raain AI | Premium Assistant",
-    page_icon="✦",
+    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 API_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "openai/gpt-oss-20b"
+DEFAULT_MODEL = "openai/gpt-oss-20b"
 
-# ============== LUXURY THEMES ==============
+# ---------------- THEMES ----------------
 THEMES = {
-    "Obsidian Luxury": {
-        "bg": "#08080D",
-        "sidebar": "rgba(15,13,25,0.96)",
-        "accent": "#B49AFF",
-        "glow": "139,92,246",
-        "text": "#F5F3FF",
-        "border": "167,139,250",
-        "muted": "#A7A1BB"
+    "Obsidian Gold": {
+        "bg": "#08090D",
+        "panel": "#11131A",
+        "accent": "#D6B36A",
+        "text": "#F4F0E8",
+        "muted": "#9A9BA5",
+        "border": "#2B2B32"
     },
     "Midnight Sapphire": {
-        "bg": "#07111F",
-        "sidebar": "rgba(8,20,38,0.96)",
-        "accent": "#69B7FF",
-        "glow": "37,99,235",
-        "text": "#EFF6FF",
-        "border": "96,165,250",
-        "muted": "#9BAFC8"
+        "bg": "#080D18",
+        "panel": "#101A2B",
+        "accent": "#78A9FF",
+        "text": "#F0F5FF",
+        "muted": "#A0AEC4",
+        "border": "#24344E"
     },
     "Emerald Elite": {
-        "bg": "#07110D",
-        "sidebar": "rgba(8,22,16,0.97)",
-        "accent": "#4BE3B0",
-        "glow": "5,150,105",
-        "text": "#ECFDF5",
-        "border": "52,211,153",
-        "muted": "#9CB9AA"
+        "bg": "#07100D",
+        "panel": "#101C17",
+        "accent": "#72D6A0",
+        "text": "#F0FFF6",
+        "muted": "#9AB7A7",
+        "border": "#244535"
     },
-    "Champagne Gold": {
-        "bg": "#17130F",
-        "sidebar": "rgba(29,24,18,0.97)",
-        "accent": "#E8CA91",
-        "glow": "180,130,55",
-        "text": "#FFF8EB",
-        "border": "229,197,139",
-        "muted": "#C4B9A5"
+    "Champagne Noir": {
+        "bg": "#100D0B",
+        "panel": "#1B1511",
+        "accent": "#E4C9A1",
+        "text": "#FFF7EC",
+        "muted": "#B6A99A",
+        "border": "#3A2C21"
     }
 }
 
-# ============== SESSION STATE ==============
-if "theme_name" not in st.session_state:
-    st.session_state.theme_name = "Obsidian Luxury"
-
+# ---------------- SESSION STATE ----------------
 if "chats" not in st.session_state:
+    first_id = str(uuid.uuid4())
+    st.session_state.chats = {
+        first_id: {
+            "title": "নতুন চ্যাট",
+            "messages": []
+        }
+    }
+    st.session_state.active_chat = first_id
+
+if "active_chat" not in st.session_state:
+    st.session_state.active_chat = next(iter(st.session_state.chats))
+
+if st.session_state.active_chat not in st.session_state.chats:
+    st.session_state.active_chat = next(iter(st.session_state.chats))
+
+# ---------------- HELPERS ----------------
+def new_chat():
     chat_id = str(uuid.uuid4())
-    st.session_state.chats = [{
-        "id": chat_id,
-        "title": "New Chat",
+    st.session_state.chats[chat_id] = {
+        "title": "নতুন চ্যাট",
         "messages": []
-    }]
+    }
     st.session_state.active_chat = chat_id
 
+def open_chat(chat_id):
+    st.session_state.active_chat = chat_id
 
-def active_chat():
-    for chat in st.session_state.chats:
-        if chat["id"] == st.session_state.active_chat:
-            return chat
-    return st.session_state.chats[0]
+def delete_current_chat():
+    chats = st.session_state.chats
+    current = st.session_state.active_chat
 
+    if current in chats:
+        del chats[current]
 
-# ============== SIDEBAR / THEME ==============
+    if not chats:
+        new_chat()
+    else:
+        st.session_state.active_chat = next(iter(chats))
+
+def make_system_prompt(style, language, personality):
+    style_instructions = {
+        "Balanced": "Give clear, useful answers with a moderate amount of detail.",
+        "Detailed": "Explain thoroughly with steps, examples, and practical advice.",
+        "Short": "Answer briefly and directly without unnecessary details.",
+        "Tutor": "Teach step by step for a beginner. Explain difficult terms simply and give examples."
+    }
+
+    language_instructions = {
+        "Auto": "Reply in the same language as the user's latest message.",
+        "বাংলা": "Always reply in simple, natural Bangla unless the user asks for another language.",
+        "English": "Reply in clear, natural English."
+    }
+
+    personalities = {
+        "Friendly": "Be friendly, respectful, warm, and easy to understand.",
+        "Professional": "Be polished, professional, structured, and precise.",
+        "Creative": "Be creative, thoughtful, and offer useful alternatives when appropriate."
+    }
+
+    return (
+        "You are Raain AI, a helpful personal AI assistant. "
+        "Be truthful. Never invent facts, sources, or capabilities. "
+        "If you are uncertain, say so. "
+        + style_instructions[style] + " "
+        + language_instructions[language] + " "
+        + personalities[personality]
+    )
+
+# ---------------- SIDEBAR ----------------
 with st.sidebar:
     st.markdown(
-        '<div class="brand">✦ Raain <span>AI</span></div>',
+        """
+        <div style="text-align:center; padding:12px 0 20px 0;">
+            <div style="font-size:42px;">✦</div>
+            <h2 style="margin:0; letter-spacing:2px;">RAAIN AI</h2>
+            <p style="color:#A0A0AA; font-size:12px; letter-spacing:3px;">
+                YOUR PERSONAL INTELLIGENCE
+            </p>
+        </div>
+        """,
         unsafe_allow_html=True
     )
 
-    st.markdown("##### PERSONALIZE")
-
-    chosen_theme = st.selectbox(
-        "Luxury Theme",
-        list(THEMES.keys()),
-        index=list(THEMES.keys()).index(
-            st.session_state.theme_name
-        )
-    )
-
-    if chosen_theme != st.session_state.theme_name:
-        st.session_state.theme_name = chosen_theme
+    if st.button("＋  নতুন চ্যাট", use_container_width=True):
+        new_chat()
         st.rerun()
 
-theme = THEMES[st.session_state.theme_name]
+    st.markdown("### 💬 Chat History")
 
-# ============== LUXURY GLASS CSS ==============
-st.markdown(f"""
-<style>
-@import url(
-'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
-);
+    # Show recent chats first
+    for chat_id, chat in reversed(list(st.session_state.chats.items())):
+        label = chat["title"][:27]
+        if chat_id == st.session_state.active_chat:
+            label = "● " + label
 
-:root {{
-    --accent: {theme["accent"]};
-    --foreground: {theme["text"]};
-}}
-
-html, body, [class*="css"] {{
-    font-family: 'Inter', sans-serif;
-}}
-
-.stApp {{
-    color: {theme["text"]};
-    background:
-        radial-gradient(
-            ellipse at 12% 5%,
-            rgba({theme["glow"]},0.23),
-            transparent 36%
-        ),
-        radial-gradient(
-            ellipse at 90% 25%,
-            rgba({theme["glow"]},0.13),
-            transparent 34%
-        ),
-        {theme["bg"]};
-    background-attachment: fixed;
-}}
-
-#MainMenu, footer, header {{
-    visibility: hidden;
-}}
-
-.block-container {{
-    max-width: 1050px;
-    padding-top: 2.2rem;
-    padding-bottom: 5rem;
-}}
-
-[data-testid="stSidebar"] {{
-    background: {theme["sidebar"]};
-    border-right: 1px solid
-        rgba({theme["border"]},0.22);
-    backdrop-filter: blur(24px);
-}}
-
-[data-testid="stSidebar"] > div:first-child {{
-    background: transparent;
-}}
-
-.brand {{
-    font-size: 30px;
-    font-weight: 800;
-    letter-spacing: -1.5px;
-    padding: 8px 0 24px;
-    color: #FFFFFF;
-}}
-
-.brand span {{
-    background: linear-gradient(
-        110deg,
-        {theme["accent"]},
-        #FFFFFF
-    );
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}}
-
-[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{
-    color: {theme["muted"]};
-}}
-
-.stButton > button {{
-    color: {theme["text"]};
-    background: rgba(255,255,255,0.035);
-    border: 1px solid rgba({theme["border"]},0.20);
-    border-radius: 13px;
-    min-height: 43px;
-    transition: all 0.22s ease;
-}}
-
-.stButton > button:hover {{
-    color: #FFFFFF;
-    background: rgba({theme["glow"]},0.15);
-    border-color: {theme["accent"]};
-    box-shadow: 0 0 24px rgba({theme["glow"]},0.17);
-    transform: translateY(-1px);
-}}
-
-[data-testid="stSelectbox"] > div > div {{
-    background: rgba(255,255,255,0.045);
-    border: 1px solid rgba({theme["border"]},0.24);
-    border-radius: 12px;
-}}
-
-.welcome {{
-    text-align: center;
-    padding-top: 10vh;
-    padding-bottom: 30px;
-}}
-
-.orb {{
-    width: 74px;
-    height: 74px;
-    margin: 0 auto 25px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 25px;
-    font-size: 35px;
-    color: white;
-    background: linear-gradient(
-        135deg,
-        {theme["accent"]},
-        {theme["bg"]}
-    );
-    border: 1px solid rgba({theme["border"]},0.4);
-    box-shadow:
-        0 0 45px rgba({theme["glow"]},0.32),
-        inset 0 0 20px rgba(255,255,255,0.08);
-}}
-
-.welcome h1 {{
-    color: {theme["text"]};
-    font-size: clamp(29px,4vw,44px);
-    font-weight: 700;
-    letter-spacing: -1.8px;
-}}
-
-.welcome p {{
-    color: {theme["muted"]};
-    font-size: 15px;
-    line-height: 1.8;
-}}
-
-.section-heading {{
-    color: {theme["muted"]};
-    text-align: center;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    margin: 12px 0 18px;
-}}
-
-[data-testid="stChatMessage"] {{
-    background: rgba(255,255,255,0.027);
-    border: 1px solid rgba({theme["border"]},0.14);
-    border-radius: 20px;
-    padding: 17px 19px;
-    margin: 13px 0;
-    backdrop-filter: blur(18px);
-}}
-
-[data-testid="stChatMessage"] p {{
-    color: {theme["text"]};
-    line-height: 1.85;
-}}
-
-[data-testid="stChatInput"] {{
-    background: rgba({theme["glow"]},0.075);
-    border: 1px solid rgba({theme["border"]},0.36);
-    border-radius: 21px;
-    box-shadow: 0 8px 35px rgba(0,0,0,0.22);
-    backdrop-filter: blur(22px);
-}}
-
-[data-testid="stChatInput"]:focus-within {{
-    border-color: {theme["accent"]};
-    box-shadow: 0 0 25px rgba({theme["glow"]},0.18);
-}}
-
-[data-testid="stChatInput"] textarea {{
-    color: {theme["text"]};
-}}
-
-[data-testid="stChatInput"] textarea::placeholder {{
-    color: {theme["muted"]};
-}}
-
-[data-testid="stChatMessage"] code {{
-    color: {theme["accent"]};
-}}
-
-[data-testid="stChatMessage"] pre {{
-    border: 1px solid rgba({theme["border"]},0.2);
-    border-radius: 14px;
-}}
-
-hr {{
-    border-color: rgba({theme["border"]},0.17);
-}}
-
-.footer-note {{
-    color: {theme["muted"]};
-    text-align: center;
-    font-size: 11px;
-    padding-top: 22px;
-}}
-
-::-webkit-scrollbar {{
-    width: 6px;
-}}
-
-::-webkit-scrollbar-thumb {{
-    background: rgba({theme["border"]},0.35);
-    border-radius: 20px;
-}}
-</style>
-""", unsafe_allow_html=True)
-
-# ============== CHAT SIDEBAR ==============
-with st.sidebar:
-    st.markdown("---")
-
-    if st.button("＋   New Chat", use_container_width=True):
-        new_id = str(uuid.uuid4())
-        st.session_state.chats.insert(0, {
-            "id": new_id,
-            "title": "New Chat",
-            "messages": []
-        })
-        st.session_state.active_chat = new_id
-        st.rerun()
-
-    st.markdown("---")
-    st.caption("YOUR CONVERSATIONS")
-
-    for item in st.session_state.chats:
-        label = "◦   " + item["title"][:25]
         if st.button(
             label,
-            key="history_" + item["id"],
+            key=f"chat_{chat_id}",
             use_container_width=True
         ):
-            st.session_state.active_chat = item["id"]
+            open_chat(chat_id)
             st.rerun()
 
-    st.markdown("---")
-    st.caption("✦ Powered by Groq")
-    st.caption("Raain AI · Premium Edition")
+    st.divider()
+    st.markdown("### ⚙️ Personalize")
 
-# ============== MAIN SCREEN ==============
-chat = active_chat()
+    theme_name = st.selectbox(
+        "Luxury Theme",
+        list(THEMES.keys()),
+        index=0
+    )
 
-if not chat["messages"]:
-    st.markdown("""
-    <div class="welcome">
-        <div class="orb">✦</div>
-        <h1>What can I help with?</h1>
-        <p>Your ideas, questions and creativity.<br>
-        One intelligent assistant, endless possibilities.</p>
+    response_style = st.selectbox(
+        "Answer Style",
+        ["Balanced", "Detailed", "Short", "Tutor"],
+        index=0
+    )
+
+    response_language = st.selectbox(
+        "Response Language",
+        ["Auto", "বাংলা", "English"],
+        index=0
+    )
+
+    personality = st.selectbox(
+        "AI Personality",
+        ["Friendly", "Professional", "Creative"],
+        index=0
+    )
+
+    st.divider()
+
+    st.caption("Powered by Groq API")
+    st.caption("Raain AI • Premium Edition")
+
+# ---------------- APPLY THEME ----------------
+theme = THEMES[theme_name]
+
+st.markdown(
+    f"""
+    <style>
+    :root {{
+        color-scheme: dark;
+    }}
+
+    .stApp {{
+        background:
+            radial-gradient(ellipse at 15% 0%, {theme["panel"]} 0%, transparent 42%),
+            {theme["bg"]};
+        color: {theme["text"]};
+    }}
+
+    [data-testid="stSidebar"] {{
+        background: {theme["panel"]};
+        border-right: 1px solid {theme["border"]};
+    }}
+
+    [data-testid="stHeader"] {{
+        background: transparent;
+    }}
+
+    h1, h2, h3 {{
+        color: {theme["text"]} !important;
+    }}
+
+    p, label, .stMarkdown {{
+        color: {theme["text"]};
+    }}
+
+    .stCaption, small {{
+        color: {theme["muted"]} !important;
+    }}
+
+    div[data-testid="stChatMessage"] {{
+        background: {theme["panel"]};
+        border: 1px solid {theme["border"]};
+        border-radius: 18px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }}
+
+    div[data-testid="stChatInput"] {{
+        border: 1px solid {theme["accent"]} !important;
+        border-radius: 18px !important;
+    }}
+
+    div[data-testid="stChatInput"] textarea {{
+        color: {theme["text"]} !important;
+    }}
+
+    .stButton > button {{
+        border: 1px solid {theme["border"]};
+        border-radius: 12px;
+        transition: all 0.2s ease;
+    }}
+
+    .stButton > button:hover {{
+        border-color: {theme["accent"]};
+        color: {theme["accent"]};
+    }}
+
+    div[data-testid="stAlert"] {{
+        border-radius: 12px;
+    }}
+
+    .raain-hero {{
+        padding: 26px 24px;
+        border: 1px solid {theme["border"]};
+        border-radius: 22px;
+        background: linear-gradient(
+            135deg,
+            {theme["panel"]},
+            {theme["bg"]}
+        );
+        margin-bottom: 22px;
+    }}
+
+    .raain-kicker {{
+        color: {theme["accent"]};
+        font-size: 11px;
+        letter-spacing: 4px;
+        font-weight: 700;
+    }}
+
+    .raain-subtitle {{
+        color: {theme["muted"]};
+        font-size: 14px;
+    }}
+
+    #MainMenu, footer {{
+        visibility: hidden;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# ---------------- MAIN HEADER ----------------
+st.markdown(
+    f"""
+    <div class="raain-hero">
+        <div class="raain-kicker">PERSONAL AI • PREMIUM EDITION</div>
+        <h1 style="font-size:36px; margin:10px 0;">
+            ✦ Raain AI
+        </h1>
+        <div class="raain-subtitle">
+            Think clearly. Create freely. Achieve more.
+        </div>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
+current_chat = st.session_state.chats[st.session_state.active_chat]
+messages = current_chat["messages"]
+
+left, right = st.columns([5, 1])
+
+with left:
+    st.caption(
+        f"Theme: {theme_name}  ·  Style: {response_style}  ·  Model: {DEFAULT_MODEL}"
+    )
+
+with right:
+    if messages:
+        chat_text = "\n\n".join(
+            f'{m["role"].upper()}:\n{m["content"]}'
+            for m in messages
+        )
+        st.download_button(
+            "⬇ Export",
+            data=chat_text,
+            file_name="raain_ai_chat.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+
+# ---------------- DISPLAY CHAT ----------------
+if not messages:
     st.markdown(
-        '<div class="section-heading">EXPLORE YOUR POSSIBILITIES</div>',
+        f"""
+        <div style="
+            border:1px solid {theme["border"]};
+            background:{theme["panel"]};
+            padding:22px;
+            border-radius:18px;
+            margin-bottom:20px;
+        ">
+            <h3 style="margin-top:0;">Welcome to Raain AI ✨</h3>
+            <p style="color:{theme["muted"]};">
+                তোমার প্রশ্ন, পড়াশোনা, coding, writing অথবা নতুন আইডিয়া নিয়ে
+                কথা শুরু করো।
+            </p>
+        </div>
+        """,
         unsafe_allow_html=True
     )
 
     col1, col2 = st.columns(2)
-
     with col1:
-        if st.button("✧   Learn English", use_container_width=True):
+        if st.button("📚 আমাকে পড়াশোনায় সাহায্য করো", use_container_width=True):
             st.session_state.suggested_prompt = (
-                "Teach me English step by step as a beginner."
+                "আমাকে একজন beginner-friendly tutor-এর মতো ধাপে ধাপে পড়াশোনায় সাহায্য করো।"
             )
-            st.rerun()
-
-        if st.button("⌘   Learn Python", use_container_width=True):
-            st.session_state.suggested_prompt = (
-                "Teach me Python from absolute beginner level."
-            )
-            st.rerun()
-
     with col2:
-        if st.button("✦   Explore AI", use_container_width=True):
+        if st.button("💻 একটি Python project শেখাও", use_container_width=True):
             st.session_state.suggested_prompt = (
-                "Explain artificial intelligence in simple terms."
+                "আমাকে beginner হিসেবে একটি ছোট Python project ধাপে ধাপে শেখাও।"
             )
-            st.rerun()
 
-        if st.button("▤   Study Assistant", use_container_width=True):
-            st.session_state.suggested_prompt = (
-                "Help me create an effective study plan."
-            )
-            st.rerun()
+for message in messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-else:
-    for message in chat["messages"]:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-# ============== AI INPUT ==============
+# ---------------- USER INPUT ----------------
 suggested = st.session_state.pop("suggested_prompt", None)
-prompt = st.chat_input("Message Raain AI...")
+prompt = st.chat_input("Raain AI-কে কিছু জিজ্ঞেস করো...")
 
-if suggested:
+if suggested and not prompt:
     prompt = suggested
 
 if prompt:
-    if not chat["messages"]:
-        chat["title"] = prompt[:25]
+    messages.append({"role": "user", "content": prompt})
 
-    chat["messages"].append({
-        "role": "user",
-        "content": prompt
-    })
+    if current_chat["title"] == "নতুন চ্যাট":
+        current_chat["title"] = prompt.strip().replace("\n", " ")[:30]
+        if len(prompt.strip()) > 30:
+            current_chat["title"] += "…"
 
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -417,19 +389,17 @@ if prompt:
         try:
             api_key = st.secrets["GROQ_API_KEY"]
 
-            messages = [{
-                "role": "system",
-                "content": (
-                    "You are Raain AI, a helpful assistant. "
-                    "Reply in the language the user uses. "
-                    "For Bangla, use Bengali script, not Banglish. "
-                    "For English, answer in English. "
-                    "Never randomly switch languages. "
-                    "Be clear, friendly, and accurate."
-                )
-            }] + chat["messages"]
+            system_prompt = make_system_prompt(
+                response_style,
+                response_language,
+                personality
+            )
 
-            with st.spinner("Raain AI is thinking..."):
+            api_messages = [
+                {"role": "system", "content": system_prompt}
+            ] + messages
+
+            with st.spinner("Raain AI ভাবছে..."):
                 response = requests.post(
                     API_URL,
                     headers={
@@ -437,56 +407,68 @@ if prompt:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": MODEL,
-                        "messages": messages,
-                        "max_tokens": 1200,
+                        "model": DEFAULT_MODEL,
+                        "messages": api_messages,
+                        "max_tokens": 1600,
                         "temperature": 0.7
                     },
-                    timeout=120
+                    timeout=90
                 )
 
             if response.status_code == 429:
-                st.error(
-                    "Usage limit reached. Please wait and try again."
+                st.warning(
+                    "Groq API-এর rate limit পূর্ণ হয়েছে। "
+                    "কিছুক্ষণ পরে আবার চেষ্টা করো।"
                 )
-                chat["messages"].pop()
+                messages.pop()
 
             else:
                 response.raise_for_status()
                 answer = response.json()["choices"][0]["message"]["content"]
 
                 st.markdown(answer)
-
-                chat["messages"].append({
+                messages.append({
                     "role": "assistant",
                     "content": answer
                 })
 
         except KeyError:
             st.error(
-                "API key missing. Add GROQ_API_KEY in Streamlit Secrets."
+                "GROQ_API_KEY পাওয়া যায়নি। "
+                "Streamlit Cloud → App Settings → Secrets পরীক্ষা করো।"
             )
-            chat["messages"].pop()
+            messages.pop()
+
+        except requests.exceptions.Timeout:
+            st.error("AI উত্তর দিতে বেশি সময় নিচ্ছে। আবার চেষ্টা করো।")
+            messages.pop()
 
         except requests.exceptions.HTTPError as error:
             st.error(
-                f"API error: {error}. Check your API key, model and usage limit."
+                f"Groq API error: {error}. "
+                "API key, model এবং API usage পরীক্ষা করো।"
             )
-            chat["messages"].pop()
+            messages.pop()
 
         except requests.exceptions.RequestException:
-            st.error(
-                "Cannot reach the AI server. Check your internet connection."
-            )
-            chat["messages"].pop()
+            st.error("সার্ভারে যোগাযোগ করা যায়নি। ইন্টারনেট পরীক্ষা করো।")
+            messages.pop()
 
-        except (ValueError, KeyError):
-            st.error("Could not read the AI response. Please try again.")
-            chat["messages"].pop()
+        except (ValueError, KeyError, IndexError, TypeError):
+            st.error("AI-এর উত্তর পড়তে সমস্যা হয়েছে। আবার চেষ্টা করো।")
+            messages.pop()
 
-st.markdown(
-    '<div class="footer-note">'
-    'Raain AI can make mistakes. Verify important information.'
-    '</div>',
-    unsafe_allow_html=True
-)
+# ---------------- CHAT MANAGEMENT ----------------
+st.divider()
+
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("＋ New Chat", use_container_width=True):
+        new_chat()
+        st.rerun()
+
+with col2:
+    if st.button("🗑 Delete Current Chat", use_container_width=True):
+        delete_current_chat()
+        st.rerun()
